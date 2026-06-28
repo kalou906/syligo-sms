@@ -10,7 +10,51 @@ import { sendSMS } from "./providers.js";
 const app = express();
 app.use(cors());            // autorise l'app SyliGo à appeler ce serveur
 app.use(express.json());
-app.use(express.static("public")); // sert la console d'admin sur "/"
+app.use(express.static("public")); // sert la console d'admin sur "/" si le dossier public existe
+
+// Console de test embarquée (s'affiche sur "/" même sans dossier public)
+const CONSOLE_HTML = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SyliGo — Console SMS</title>
+<style>
+body{margin:0;background:#131210;color:#f3efe4;font-family:system-ui,sans-serif;font-size:15px}
+.wrap{max-width:520px;margin:0 auto;padding:26px 18px 60px}
+.logo{font-weight:800;font-size:26px}.logo .s{color:#f6c324}.logo .g{color:#16b06f}
+.sub{color:#97907f;font-size:13px;margin:4px 0 18px}
+.tri{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:0 0 20px}.tri i{flex:1}
+.card{background:#1b1a17;border:1px solid #322f26;border-radius:14px;padding:18px}
+label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#97907f;margin:12px 0 5px}
+input,textarea{width:100%;box-sizing:border-box;background:#232118;border:1px solid #322f26;color:#f3efe4;border-radius:9px;padding:11px;font-size:15px;font-family:inherit}
+textarea{min-height:84px}
+button{width:100%;border:none;border-radius:10px;padding:14px;font-weight:700;font-size:16px;cursor:pointer;margin-top:16px;background:#16b06f;color:#05281a}
+.out{margin-top:14px;padding:12px;border-radius:10px;font-size:13px;white-space:pre-wrap;border:1px solid #322f26;background:#232118;display:none}
+.ok{border-color:#16b06f;color:#16b06f}.err{border-color:#e23145;color:#e23145}
+.pill{display:inline-block;font-size:12px;color:#97907f}
+</style></head><body><div class="wrap">
+<div class="logo"><span class="s">Syli</span><span class="g">Go</span> — Console SMS</div>
+<div class="sub">Envoie un SMS de test a un taximan, depuis ce navigateur.</div>
+<div class="tri"><i style="background:#e23145"></i><i style="background:#f6c324"></i><i style="background:#16b06f"></i></div>
+<div class="card">
+<div class="pill" id="prov">Passerelle : …</div>
+<label>Cle API (ta valeur API_KEY)</label><input id="key" placeholder="ta-cle-secrete" autocomplete="off">
+<label>Numero du destinataire</label><input id="to" placeholder="622 14 25 36">
+<label>Message</label><textarea id="msg">Test SyliGo : ceci est un message de demonstration.</textarea>
+<button id="send">Envoyer le SMS de test</button>
+<div class="out" id="out"></div>
+</div>
+<div class="sub">En mode console, aucun vrai SMS n'est envoye : le message s'affiche dans les logs Render. Avec une vraie passerelle, le SMS part pour de vrai.</div>
+</div>
+<script>
+fetch("/health").then(function(r){return r.json()}).then(function(j){document.getElementById("prov").textContent="Passerelle : "+(j.provider||"?")}).catch(function(){});
+document.getElementById("send").onclick=function(){
+  var out=document.getElementById("out");out.style.display="block";out.className="out";out.textContent="Envoi…";
+  var key=document.getElementById("key").value.trim();
+  var to=document.getElementById("to").value.trim();
+  var message=document.getElementById("msg").value;
+  fetch("/api/sms",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key},body:JSON.stringify({to:to,message:message})})
+  .then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})
+  .then(function(o){if(o.j&&o.j.ok){out.className="out ok";out.textContent="Envoye avec succes (id: "+(o.j.id||"-")+"). En mode console, regarde les logs Render pour voir le message.";}else{out.className="out err";out.textContent="Erreur "+o.s+" : "+((o.j&&o.j.error)||"inconnue");}})
+  .catch(function(e){out.className="out err";out.textContent="Serveur injoignable : "+e.message;});
+};
+</script></body></html>`;
 
 const PORT = process.env.PORT || 8080;
 const API_KEY = process.env.API_KEY || "";
@@ -80,6 +124,9 @@ function protege(req, res, next) {
 app.get("/health", (_req, res) =>
   res.json({ ok: true, provider: process.env.SMS_PROVIDER || "console" })
 );
+
+// Page d'accueil = console de test (fonctionne même sans dossier public)
+app.get("/", (_req, res) => res.type("html").send(CONSOLE_HTML));
 
 // Envoi brut : { to, message }
 app.post("/api/sms", protege, rateLimit, async (req, res) => {
