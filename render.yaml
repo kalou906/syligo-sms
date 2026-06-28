@@ -1,0 +1,36 @@
+# Déploiement automatique sur Render.
+# Sur render.com : New > Blueprint > pointe vers ce dépôt.
+# Render lit ce fichier et configure tout seul.
+services:
+  - type: web
+    name: syligo-sms
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: API_KEY
+        generateValue: true        # Render génère une clé secrète forte
+      - key: SMS_PROVIDER
+        value: console             # change en "nimba"/"orange"/"twilio" quand prêt
+      - key: SMS_SENDER
+        value: SYLIGO
+      - key: NIMBA_SERVICE_ID
+        sync: false
+      - key: NIMBA_SECRET_TOKEN
+        sync: false
+      - key: NIMBA_BASE_URL
+        value: https://api.nimbasms.com/v1
+      - key: ORANGE_CLIENT_ID
+        sync: false
+      - key: ORANGE_CLIENT_SECRET
+        sync: false
+      - key: ORANGE_SENDER_ADDRESS
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
