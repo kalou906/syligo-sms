@@ -73,7 +73,9 @@ function rateLimit(req, res, next) {
 }
 
 // --- File des réponses entrantes des taximen (OUI / NON) ---
-const _replies = [];   // { from, text, at }
+const _replies = [];   // { from, text, at }  — réponses OUI/NON des taximen
+const _orders = [];    // { id, from, text, at, handled } — commandes de course des clients
+let _oid = 1;
 
 // Modèle de message taximan par défaut (mêmes variables que dans l'app SyliGo)
 const TEMPLATE_DEFAUT =
@@ -172,14 +174,25 @@ app.post("/api/notify-client", protege, rateLimit, async (req, res) => {
   }
 });
 
-// Webhook entrant : la passerelle envoie ici les réponses des taximen (OUI/NON).
+// Webhook entrant : la passerelle envoie ici les SMS reçus.
 // Configure cette URL (…/api/inbound) dans le tableau de bord de ta passerelle.
 app.post("/api/inbound", (req, res) => {
   const b = req.body || {};
   // on accepte plusieurs noms de champs selon les passerelles
   const from = b.from || b.sender || b.msisdn || b.From || "";
   const text = b.text || b.message || b.content || b.Body || "";
-  if (from) { _replies.push({ from, text, at: Date.now() }); if (_replies.length > 500) _replies.shift(); }
+  if (from) {
+    const t = String(text).trim().toUpperCase();
+    const estReponse = ["OUI", "NON", "O", "N", "YES", "NO", "1", "2"].includes(t);
+    if (estReponse) {
+      _replies.push({ from, text, at: Date.now() });
+      if (_replies.length > 500) _replies.shift();
+    } else {
+      // tout autre SMS = une commande de course d'un client
+      _orders.push({ id: _oid++, from, text, at: Date.now(), handled: false });
+      if (_orders.length > 500) _orders.shift();
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -187,6 +200,18 @@ app.post("/api/inbound", (req, res) => {
 app.get("/api/replies", protege, (_req, res) => {
   const replies = _replies.splice(0, _replies.length);
   res.json({ ok: true, replies });
+});
+
+// Commandes de course reçues par SMS (non traitées). Ne sont pas effacées à la lecture.
+app.get("/api/orders", protege, (_req, res) => {
+  res.json({ ok: true, orders: _orders.filter((o) => !o.handled) });
+});
+// Marquer une commande comme traitée (course créée ou ignorée)
+app.post("/api/orders/done", protege, (req, res) => {
+  const id = (req.body && req.body.id) || null;
+  const o = _orders.find((x) => x.id === id);
+  if (o) o.handled = true;
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {
