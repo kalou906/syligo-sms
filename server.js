@@ -174,7 +174,7 @@ app.post("/api/notify-client", protege, rateLimit, async (req, res) => {
   }
 });
 
-// Webhook entrant : la passerelle envoie ici les SMS reçus.
+// Webhook entrant : la passerelle envoie ici les réponses des taximen (OUI/NON).
 // Configure cette URL (…/api/inbound) dans le tableau de bord de ta passerelle.
 app.post("/api/inbound", (req, res) => {
   const b = req.body || {};
@@ -183,7 +183,8 @@ app.post("/api/inbound", (req, res) => {
   const text = b.text || b.message || b.content || b.Body || "";
   if (from) {
     const t = String(text).trim().toUpperCase();
-    const estReponse = ["OUI", "NON", "O", "N", "YES", "NO", "1", "2"].includes(t);
+    const estReponse = ["OUI", "NON", "O", "N", "YES", "NO", "1", "2"].includes(t)
+      || /^(FINI|FIN|FINIE|TERMINE|TERMINÉ|TERMINEE|TERMINÉE|ARRIVE|ARRIVÉ)\b/.test(t);
     if (estReponse) {
       _replies.push({ from, text, at: Date.now() });
       if (_replies.length > 500) _replies.shift();
@@ -212,6 +213,39 @@ app.post("/api/orders/done", protege, (req, res) => {
   const o = _orders.find((x) => x.id === id);
   if (o) o.handled = true;
   res.json({ ok: true });
+});
+
+/* ---- Base de données partagée (Supabase) ---- */
+const SB_URL = process.env.SUPABASE_URL || "";
+const SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
+const sbHeaders = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+
+// Lire l'état partagé
+app.get("/api/state", protege, async (_req, res) => {
+  if (!SB_URL || !SB_KEY) return res.status(503).json({ ok: false, error: "Base non configurée" });
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/syligo_state?id=eq.main&select=data,updated_at`, { headers: sbHeaders });
+    if (!r.ok) return res.status(502).json({ ok: false, error: "Lecture impossible" });
+    const rows = await r.json();
+    const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    res.json({ ok: true, data: row ? row.data : null, updated_at: row ? row.updated_at : null });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// Écrire l'état partagé (upsert sur id='main')
+app.post("/api/state", protege, async (req, res) => {
+  if (!SB_URL || !SB_KEY) return res.status(503).json({ ok: false, error: "Base non configurée" });
+  const data = req.body && req.body.data;
+  if (data == null) return res.status(400).json({ ok: false, error: "data manquant" });
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/syligo_state`, {
+      method: "POST",
+      headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([{ id: "main", data, updated_at: new Date().toISOString() }]),
+    });
+    if (!r.ok) { const t = await r.text(); return res.status(502).json({ ok: false, error: t }); }
+    res.json({ ok: true, updated_at: new Date().toISOString() });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
 app.listen(PORT, () => {
